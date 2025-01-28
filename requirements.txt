@@ -1,0 +1,7 @@
+keras ~= 3.0
+keras_cv
+keras_hub
+matplotlib
+pillow
+tensorflow
+tensorflow-datasets
