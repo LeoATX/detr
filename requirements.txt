@@ -3,5 +3,5 @@ keras_cv
 keras_hub
 matplotlib
 pillow
-tensorflow
+tensorflow  # tensorflow[and-cuda] on CUDA enabled machines
 tensorflow-datasets

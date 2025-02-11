@@ -58,10 +58,13 @@ class DETR(keras.Model):
         ]
 
     def call(self, x):
+        print('Batch size of x', keras.ops.shape(x)[0])
         x = self.backbone(x)
         x = self.proj(x)
 
         BATCH_SIZE, H, W, C = keras.ops.shape(x)
+        # BATCH_SIZE = 32
+        print('Shape of x after proj', keras.ops.shape(x))
         # flatten
         x = keras.ops.reshape(x, (BATCH_SIZE, H * W, C))
 
@@ -75,6 +78,7 @@ class DETR(keras.Model):
         expanded_query_embed = keras.ops.tile(
             expanded_query_embed, [BATCH_SIZE, 1, 1])
 
+        print('Shape of inputs before decoder:', keras.ops.shape(x))
         for decoder in self.decoders:
             x = decoder(expanded_query_embed, x)
 
@@ -84,12 +88,41 @@ class DETR(keras.Model):
             bbox_output = layer(bbox_output)
 
         return bbox_output, class_output
+    
+    def train_step(self, data):
+        images, targets = data
+        # targets might be a dict: {"boxes": ..., "labels": ...}
+        
+        with tf.GradientTape() as tape:
+            # 1) Forward pass
+            pred_boxes, pred_class_logits = self(images, training=True)
+            
+            # 2) Hungarian (or bipartite) matching: match each gt box to a predicted query
+            matched_indices = hungarian_matching(
+                pred_boxes, pred_class_logits, targets["boxes"], targets["labels"]
+            )
+            
+            # 3) Once matched, compute classification loss and bounding box loss
+            # E.g.:
+            loss_cls = classification_loss_function(
+                pred_class_logits, targets["labels"], matched_indices
+            )
+            loss_box = bbox_regression_loss_function(
+                pred_boxes, targets["boxes"], matched_indices
+            )
+            total_loss = loss_cls + loss_box
+        
+        # 4) Gradients and optimization
+        gradients = tape.gradient(total_loss, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        
+        return {"loss": total_loss, "cls_loss": loss_cls, "box_loss": loss_box}
 
 
 if __name__ == '__main__':
     model = DETR()
     image = keras.utils.load_img(
-        path='test.jpg',
+        path='assets/test.jpg',
         color_mode='rgb',
         target_size=None,
         interpolation='nearest',
@@ -98,7 +131,6 @@ if __name__ == '__main__':
     image = keras.utils.img_to_array(image)
     image = keras.layers.Resizing(224, 224)(image)
     image = keras.ops.reshape(x=image, newshape=(1, *image.shape))
-    model.compile()
     model.summary()
     bbox_preds, class_preds = model(image)
     print(bbox_preds)
